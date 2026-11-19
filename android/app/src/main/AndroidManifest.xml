@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- The game is fully playable with the on-screen controls, a keyboard,
+         a D-pad or a gamepad, so none of them is required. -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.gamepad" android:required="false" />
+
+    <application
+        android:allowBackup="true"
+        android:appCategory="game"
+        android:enableOnBackInvokedCallback="true"
+        android:icon="@mipmap/ic_launcher"
+        android:isGame="true"
+        android:label="@string/app_name"
+        android:theme="@style/DiggerTheme">
+
+        <!-- The game draws a 320x200 CGA screen and handles rotation and
+             resizing itself, so the activity is never recreated for them. -->
+        <activity
+            android:name="digger.DiggerActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensorLandscape">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

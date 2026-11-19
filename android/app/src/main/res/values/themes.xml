@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Full screen, black, no action bar. Dialogs (the no-warranty terms)
+         use the device's own look, just like the JavaME Form did. -->
+    <style name="DiggerTheme" parent="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+</resources>
