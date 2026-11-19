@@ -20,7 +20,7 @@ You need JDK 17 to 24 (Gradle 8.14 does not run on newer ones) and the Android
 SDK with the Android 16 (API 36) platform.
 
 * **Android Studio**: open this `android/` directory and run the `app` configuration.
-* **Command line** (the Gradle wrapper downloads Gradle 8.14.7 by itself):
+* **Command line** (the Gradle wrapper downloads Gradle 8.14.8 by itself):
 
   ```bash
   cd android

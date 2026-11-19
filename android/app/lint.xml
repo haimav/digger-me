@@ -11,4 +11,9 @@
         <ignore path="src/main/java/digger/Sprite.java" />
         <ignore path="src/main/java/digger/_bag.java" />
     </issue>
+
+    <!-- @RequiresApi is in AndroidX, which the port does not use. The classes that call
+         newer APIs (Api24, Api28, Api30, Api33 in DiggerActivity and DiggerView) are
+         marked with @TargetApi, and every call to them is behind a Build.VERSION check. -->
+    <issue id="UseRequiresApi" severity="ignore" />
 </lint>

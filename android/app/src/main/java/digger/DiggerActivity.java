@@ -5,6 +5,7 @@
 package digger;
 
 import android.annotation.SuppressLint;
+import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
@@ -231,7 +232,7 @@ public class DiggerActivity extends Activity implements MenuListener {
             warrantyDialog = null;
         }
         if (Build.VERSION.SDK_INT >= 33 && backCallback != null) {
-            getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback((OnBackInvokedCallback) backCallback);
+            Api33.unregisterBackCallback(this, backCallback);
             backCallback = null;
         }
         gameView.detach();
@@ -318,13 +319,11 @@ public class DiggerActivity extends Activity implements MenuListener {
 
     private void registerBackCallback() {
         if (Build.VERSION.SDK_INT >= 33) {
-            OnBackInvokedCallback callback = new OnBackInvokedCallback() {
-                public void onBackInvoked() {
+            backCallback = Api33.registerBackCallback(this, new Runnable() {
+                public void run() {
                     handleBack();
                 }
-            };
-            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, callback);
-            backCallback = callback;
+            });
         }
     }
 
@@ -481,17 +480,47 @@ public class DiggerActivity extends Activity implements MenuListener {
     private void hideSystemBars() {
         Window window = getWindow();
         if (Build.VERSION.SDK_INT >= 30) {
+            Api30.hideSystemBars(window);
+        } else {
+            window.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                    | View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    | View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Calls to newer versions of Android. They are kept in classes of their own, which
+    // older versions never load: there, a reference to a class or method they do not
+    // have makes the class that holds it fail verification.
+
+    @TargetApi(30)
+    private static final class Api30 {
+        @SuppressWarnings("deprecation")    // since Android 15 windows are edge to edge anyway
+        static void hideSystemBars(Window window) {
             window.setDecorFitsSystemWindows(false);
             WindowInsetsController controller = window.getInsetsController();
             if (controller != null) {
                 controller.hide(WindowInsets.Type.systemBars());
                 controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
             }
-        } else {
-            window.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                    | View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                    | View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        }
+    }
+
+    @TargetApi(33)
+    private static final class Api33 {
+        static Object registerBackCallback(Activity activity, final Runnable onBack) {
+            OnBackInvokedCallback callback = new OnBackInvokedCallback() {
+                public void onBackInvoked() {
+                    onBack.run();
+                }
+            };
+            activity.getOnBackInvokedDispatcher().registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, callback);
+            return callback;
+        }
+
+        static void unregisterBackCallback(Activity activity, Object callback) {
+            activity.getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback((OnBackInvokedCallback) callback);
         }
     }
 }

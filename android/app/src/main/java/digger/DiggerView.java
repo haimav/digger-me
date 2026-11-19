@@ -1,5 +1,6 @@
 package digger;
 
+import android.annotation.TargetApi;
 import android.app.Activity;
 import android.content.Context;
 import android.content.pm.PackageManager;
@@ -268,7 +269,7 @@ public class DiggerView extends SurfaceView implements SurfaceHolder.Callback, M
 
         Canvas canvas = null;
         try {
-            canvas = Build.VERSION.SDK_INT >= 28 ? surface.lockHardwareCanvas() : surface.lockCanvas();
+            canvas = Build.VERSION.SDK_INT >= 28 ? Api28.lockHardwareCanvas(surface) : surface.lockCanvas();
             if (canvas == null)
                 return;
             canvas.drawColor(Color.BLACK);
@@ -369,37 +370,24 @@ public class DiggerView extends SurfaceView implements SurfaceHolder.Callback, M
     @Override
     @SuppressWarnings("deprecation")
     public WindowInsets onApplyWindowInsets(WindowInsets windowInsets) {
-        int left = 0, top = 0, right = 0, bottom = 0;
         // In split screen, or in a window on a desktop, the system bars cannot be hidden.
         // (In full screen they are hidden; when they come for a moment, swiped in or with
         // the notification shade, the game does not move.)
         boolean inWindow = Build.VERSION.SDK_INT >= 24 && getContext() instanceof Activity
-                && ((Activity) getContext()).isInMultiWindowMode();
+                && Api24.isInMultiWindowMode((Activity) getContext());
+        Rect safe = new Rect();
         if (Build.VERSION.SDK_INT >= 30) {
-            Insets safe = windowInsets.getInsets(WindowInsets.Type.displayCutout());
-            if (inWindow)
-                safe = Insets.max(safe, windowInsets.getInsets(WindowInsets.Type.systemBars()));
-            left = safe.left;
-            top = safe.top;
-            right = safe.right;
-            bottom = safe.bottom;
+            Api30.safeInsets(windowInsets, inWindow, safe);
         } else {
-            if (Build.VERSION.SDK_INT >= 28) {
-                DisplayCutout cutout = windowInsets.getDisplayCutout();
-                if (cutout != null) {
-                    left = cutout.getSafeInsetLeft();
-                    top = cutout.getSafeInsetTop();
-                    right = cutout.getSafeInsetRight();
-                    bottom = cutout.getSafeInsetBottom();
-                }
-            }
+            if (Build.VERSION.SDK_INT >= 28)
+                Api28.cutoutInsets(windowInsets, safe);
             // Before Android 11 a full screen window in split screen is laid out under the
             // status bar (the navigation bar is taken care of).
             if (inWindow)
-                top = Math.max(top, windowInsets.getStableInsetTop());
+                safe.top = Math.max(safe.top, windowInsets.getStableInsetTop());
         }
         synchronized (lock) {
-            insets.set(left, top, right, bottom);
+            insets.set(safe);
         }
         relayout();
         return super.onApplyWindowInsets(windowInsets);
@@ -826,5 +814,39 @@ public class DiggerView extends SurfaceView implements SurfaceHolder.Callback, M
             return sideControls ? x >= gameRect.right : y > gameRect.bottom && x >= getWidth() / 2f;
         float dx = x - fireX, dy = y - fireY;
         return dx * dx + dy * dy <= fireR * fireR * 2.25f;
+    }
+
+    // ------------------------------------------------------------------
+    // Calls to newer versions of Android, in classes of their own, which older versions
+    // never load (see the same in DiggerActivity).
+
+    @TargetApi(24)
+    private static final class Api24 {
+        static boolean isInMultiWindowMode(Activity activity) {
+            return activity.isInMultiWindowMode();
+        }
+    }
+
+    @TargetApi(28)
+    private static final class Api28 {
+        static Canvas lockHardwareCanvas(SurfaceHolder holder) {
+            return holder.lockHardwareCanvas();
+        }
+
+        static void cutoutInsets(WindowInsets windowInsets, Rect out) {
+            DisplayCutout cutout = windowInsets.getDisplayCutout();
+            if (cutout != null)
+                out.set(cutout.getSafeInsetLeft(), cutout.getSafeInsetTop(), cutout.getSafeInsetRight(), cutout.getSafeInsetBottom());
+        }
+    }
+
+    @TargetApi(30)
+    private static final class Api30 {
+        static void safeInsets(WindowInsets windowInsets, boolean inWindow, Rect out) {
+            Insets safe = windowInsets.getInsets(WindowInsets.Type.displayCutout());
+            if (inWindow)
+                safe = Insets.max(safe, windowInsets.getInsets(WindowInsets.Type.systemBars()));
+            out.set(safe.left, safe.top, safe.right, safe.bottom);
+        }
     }
 }
