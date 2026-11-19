@@ -5,6 +5,7 @@
 
 package general.ui;
 
+// Android port: an Android Canvas and Paint instead of the lcdui Graphics (see MenuItem)
 import android.graphics.Canvas;
 import android.graphics.Paint;
 

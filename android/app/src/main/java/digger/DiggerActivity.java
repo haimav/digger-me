@@ -19,7 +19,6 @@ import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
-import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.window.OnBackInvokedCallback;
 import android.window.OnBackInvokedDispatcher;
@@ -74,6 +73,7 @@ public class DiggerActivity extends Activity implements MenuListener {
     private SharedPreferences settings;
     private boolean started;        // between onStart() and onStop()
     private boolean showingGame;    // this activity told the game it is visible
+    private int menuKey = KeyEvent.KEYCODE_UNKNOWN;     // the key pressed down in a menu (only it repeats there)
 
     // Settings, kept between runs (JavaME forgot them)
     private static final String MUTE_SETTING = "mute";
@@ -103,8 +103,8 @@ public class DiggerActivity extends Activity implements MenuListener {
         super.onCreate(savedInstanceState);
         settings = getSharedPreferences("digger", MODE_PRIVATE);
         applyScreenSetting();
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         setVolumeControlStream(AudioManager.STREAM_MUSIC);
+        // (The screen is kept on while the game is played, see DiggerView.keepScreenOn().)
 
         // Where the game finds what JavaME gave it with RecordStore and getResourceAsStream()
         ScoreStorage.setDirectory(getFilesDir());
@@ -239,6 +239,13 @@ public class DiggerActivity extends Activity implements MenuListener {
     }
 
     @Override
+    @SuppressWarnings("deprecation")    // the newer one (API 26) calls this one
+    public void onMultiWindowModeChanged(boolean isInMultiWindowMode) {
+        super.onMultiWindowModeChanged(isInMultiWindowMode);
+        gameView.requestApplyInsets();  // the room the system bars take changes with it
+    }
+
+    @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus)
@@ -288,9 +295,17 @@ public class DiggerActivity extends Activity implements MenuListener {
             int action = DiggerView.gameAction(keyCode);
             if (action == DiggerCanvas.UP || action == DiggerCanvas.DOWN || action == DiggerCanvas.LEFT
                     || action == DiggerCanvas.RIGHT || action == DiggerCanvas.FIRE) {
-                boolean repeatable = action == DiggerCanvas.UP || action == DiggerCanvas.DOWN;
-                if (down && (event.getRepeatCount() == 0 || repeatable))
+                if (down && event.getRepeatCount() == 0) {
+                    menuKey = keyCode;
                     menu.keyPressed(action);
+                } else if (down) {
+                    // Held down, up and down move on; but not a key that was already held
+                    // when the menu opened (e.g. to dig), nor a gamepad stick pushed then.
+                    if (keyCode == menuKey && (action == DiggerCanvas.UP || action == DiggerCanvas.DOWN))
+                        menu.keyPressed(action);
+                } else if (keyCode == menuKey) {
+                    menuKey = KeyEvent.KEYCODE_UNKNOWN;
+                }
                 return true;
             }
             return super.dispatchKeyEvent(event);
@@ -340,6 +355,7 @@ public class DiggerActivity extends Activity implements MenuListener {
     private void openMenu() {
         if (gameCanvas == null || optionsMenu.isOpen())
             return;
+        menuKey = KeyEvent.KEYCODE_UNKNOWN;
         pauseGame();
         updateMenuTexts();
         optionsMenu.open(screen);
@@ -357,11 +373,13 @@ public class DiggerActivity extends Activity implements MenuListener {
         // LEFT and RIGHT still do, as on the keypad of the phone.
         boolean change = event == MenuEvent.LEFT_EVENT || event == MenuEvent.RIGHT_EVENT || event == MenuEvent.SELECT_EVENT;
 
-        if (item == exitMenuItem) {
+        // Android port: Quit and Restart only when chosen; not with left/right too, as a
+        // gamepad stick pushed a little sideways while moving up and down does.
+        if (item == exitMenuItem && event == MenuEvent.SELECT_EVENT) {
             quit();
         }
 
-        if (item == restartMenuItem) {
+        if (item == restartMenuItem && event == MenuEvent.SELECT_EVENT) {
             gameCanvas.endgame();
             if (optionsMenu.isOpen()) {
                 optionsMenu.close();
@@ -418,8 +436,10 @@ public class DiggerActivity extends Activity implements MenuListener {
     }
 
     /**
-     * JavaME: notifyDestroyed(). On Android the activity finishes; the game goes
-     * back to its title screen and sleeps there until the game is launched again.
+     * JavaME: notifyDestroyed(). On Android the activity finishes; the game is given
+     * up, as with Restart, and sleeps until the game is launched again: on its title
+     * screen (or, if a new high score is being entered, at the initials, which are
+     * then saved).
      */
     private void quit() {
         settingsMenu.close();

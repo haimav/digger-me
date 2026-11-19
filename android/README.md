@@ -10,15 +10,17 @@ life of the original code:
 5. **DiggerME for Android** (this directory)
 
 As with the step before it, the game is not rewritten: the game code of the
-Java ME version is carried over unchanged, and only the platform layer under it
-(display, keys, sound, storage, menus, application lifecycle) is replaced.
+Java ME version is carried over, most of it unchanged and the rest with small,
+marked changes, and only the platform layer under it (display, keys, sound,
+storage, menus, application lifecycle) is replaced.
 
 ## Building
 
-You need JDK 17 or newer and the Android SDK with the Android 16 (API 36) platform.
+You need JDK 17 to 24 (Gradle 8.14 does not run on newer ones) and the Android
+SDK with the Android 16 (API 36) platform.
 
 * **Android Studio**: open this `android/` directory and run the `app` configuration.
-* **Command line** (the Gradle wrapper downloads Gradle 8.14.3 by itself):
+* **Command line** (the Gradle wrapper downloads Gradle 8.14.7 by itself):
 
   ```bash
   cd android
@@ -44,8 +46,10 @@ cd android
 ```
 
 `HeadlessGameTest` runs the real game engine on the JVM, without a device: the
-title screen, a game (keys, digging, pause, restart), the high score file and
-the sound modes. It also saves the frames the game shows as PNG files in
+title screen, a game (keys, digging, pause, restart), the high score file, and
+the rules of the sound (a paused game starts no tunes, music that is over does
+not come back after a pause, no music over the funeral tune, the sound settings
+can change at any time). It also saves the frames the game shows as PNG files in
 `app/build/digger-frames/`.
 
 ## Playing
@@ -62,7 +66,8 @@ the sound modes. It also saves the frames the game shows as PNG files in
 The on-screen controls hide themselves when a key is used, and come back on the
 next touch. When the game is hidden (another app, the screen goes off, the
 notification shade...) it pauses at "PRESS ANY KEY", exactly as the Java ME
-version did when its canvas was hidden.
+version did when its canvas was hidden. The screen stays on while you play; on
+the title screen, at "PRESS ANY KEY" and under a menu it times out as usual.
 
 ### Menus
 
@@ -80,7 +85,8 @@ the selection in red):
   * **Mute**.
 
 Use up/down and fire, or tap. A setting changes with left/right (as on the phone)
-or with a tap. The settings are kept between runs.
+or with a tap; Restart and Quit need fire or a tap. The settings are kept between
+runs. Quit gives up the game, as Restart does, and closes the app.
 
 ## How the code is organized
 
@@ -89,23 +95,40 @@ The packages are those of the Java ME version: `digger` for the game and
 
 ### Carried over from Java ME without any change
 
-`Bags`, `Drawing`, `Input`, `Monster`, `Pc`, `Scores`, `Sound`, `Sprite`,
-`_bag`, `_game`, `_monster`, `alpha` (the font), `cgagrafx1`-`3` (the original
-CGA graphics), `general.sound.NoteSequenceTunePlayer`, `TunePlayer`,
+`Bags`, `Drawing`, `Input`, `Monster`, `Pc`, `Sound`, `Sprite`, `_bag`,
+`_game`, `_monster`, `alpha` (the font), `cgagrafx1`-`3` (the original CGA
+graphics), `general.sound.NoteSequenceTunePlayer`, `TunePlayer`,
 `NotePlayingException`, `general.ui.GaugableResource`, and the MIDI files (now
-in `assets/audiofiles/`, under the same paths).
+in `assets/audiofiles/`, under the same paths). These files are byte for byte
+those of `src/`.
 
 The functions of `digger.c` that live in `DiggerCanvas` (digging, firing, dying,
-the bonus mode, ...) are unchanged as well.
+the bonus mode, ...) are unchanged as well, except two that got one line each:
+`newframe()` also waits while the game is hidden, and `endgame()` (Restart,
+Quit) also stops the music.
 
 ### Carried over with small, marked changes
 
 Every change is marked with an `Android port:` comment.
 
-* `Main`: a new credit line on the title screen, and a "Restart" chosen on the
-  title screen no longer ends the next game as soon as it starts.
-* `NewSound`: switching the music from TONE back to MIDI threw a
-  `NullPointerException`.
+* `Main`: a new credit line on the title screen; a "Restart" chosen on the title
+  screen no longer ends the next game as soon as it starts; the pause ("PRESS ANY
+  KEY") and the title line wait while the game is hidden.
+* `Scores`: the entry of the initials of a new high score waits while the game
+  is hidden.
+* `NewSound`:
+  * A paused game starts no tunes. What the game asks for between the pause and
+    "PRESS ANY KEY" (the music of a new level, the funeral tune, ...) plays when
+    the game goes on; the new level tune is skipped, as a pause stopped it.
+  * `killAll()`, which the game calls when a life, a level or a game is over (or
+    given up), also forgets what is to be resumed after a pause. The bonus tune
+    came back over the music of the next level, and the funeral tune at the start
+    of the next game. A change of the sound settings keeps it, so the music goes
+    on after it.
+  * The music does not start over the funeral tune: a bag can kill the digger in
+    bonus mode, and the end of the bonus mode then asks for the music. (In Java
+    ME the second tune made `ResourceTunePlayer` throw.)
+  * Switching the music from TONE back to MIDI threw a `NullPointerException`.
 * `general.sound.MusicNotes`, `NotePlayer`, `NoteSeriallizer`: no more Mobile
   Media API types.
 * `general.ui.MenuItem`, `TextMenuItem`, `MenuListener`, `MenuEvent`: Android
@@ -131,8 +154,11 @@ of the port.
 ### Threads
 
 * The **game thread** runs `Main.main()`, the original main loop, at the
-  original 80 ms per frame. While the app is in the background it sleeps in
-  `newframe()`, silent.
+  original 80 ms per frame. While the app is in the background it sleeps,
+  silent: in `newframe()`, or in the loops that do not call it (the pause, the
+  initials of a new high score).
+* The **title line thread** of the Java ME version (`Main.TitleUpdater`) sleeps
+  then as well.
 * The **display thread** of `DiggerView` draws the last frame the game flushed,
   so the game never waits for the screen.
 * The sound threads of the Java ME version (`NoteSeriallizer`,

@@ -2,25 +2,29 @@ package digger;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import general.sound.TunePlayer;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.zip.CRC32;
 import java.util.zip.DeflaterOutputStream;
+import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 /**
  * Runs the game engine - the code of the JavaME version - on the JVM, without a
- * device: the title screen, a game, keys, the high score file and the sound modes.
+ * device: the title screen, a game, keys, the high score file and the sound.
  * The frames it shows are saved as PNG files (in build/digger-frames, or where the
  * digger.frames system property says) to be looked at.
  * <p>
@@ -34,17 +38,22 @@ public class HeadlessGameTest {
     private static File frames;
 
     @BeforeClass
-    public static void setUp() throws Exception {
-        storage = Files.createTempDirectory("digger").toFile();
-        ScoreStorage.setDirectory(storage);
+    public static void setUpFrames() {
         frames = new File(System.getProperty("digger.frames", "build/digger-frames"));
         frames.mkdirs();
+    }
+
+    @Before
+    public void setUpStorage() throws Exception {
+        storage = Files.createTempDirectory("digger").toFile();     // each test starts with no high scores
+        ScoreStorage.setDirectory(storage);
     }
 
     @Test
     public void titleScreenThenAGame() throws Exception {
         final DiggerCanvas dig = new DiggerCanvas();
         dig.frametime = 10;     // the title animation, 8 times faster
+        assertFalse(new File(storage, "digger.scores").exists());
         dig.start();
         dig.setForeground(true);    // what a visible activity does
 
@@ -57,8 +66,7 @@ public class HeadlessGameTest {
 
         // Any key starts a game
         dig.frametime = 80;
-        dig.keyPressed(DiggerCanvas.ANY_KEY);
-        dig.keyReleased(DiggerCanvas.ANY_KEY);
+        tap(dig);
         waitFor(new BooleanSupplier() {
             public boolean getAsBoolean() {
                 return dig.digonscr && dig.diggervisible;
@@ -103,8 +111,7 @@ public class HeadlessGameTest {
         Thread.sleep(400);
         assertEquals(pausedX, dig.diggerx);
         assertEquals(pausedY, dig.diggery);
-        dig.keyPressed(DiggerCanvas.ANY_KEY);
-        dig.keyReleased(DiggerCanvas.ANY_KEY);
+        tap(dig);
         waitFor(new BooleanSupplier() {
             public boolean getAsBoolean() {
                 return !dig.paused;
@@ -136,6 +143,130 @@ public class HeadlessGameTest {
     }
 
     @Test
+    public void aReleasedKeyStartsNoGame() {
+        // A tap during GAME OVER must not start a game as soon as the title screen is up
+        DiggerCanvas dig = new DiggerCanvas();
+        dig.keyPressed(DiggerCanvas.ANY_KEY);
+        dig.keyReleased(DiggerCanvas.ANY_KEY);
+        assertFalse(dig.Input.teststart());
+        dig.keyPressed(DiggerCanvas.ANY_KEY);
+        assertTrue(dig.Input.teststart());
+    }
+
+    @Test(timeout = 10000)
+    public void aHiddenGameWaits() throws Exception {
+        final DiggerCanvas dig = new DiggerCanvas();
+        Thread waiter = new Thread(new Runnable() {
+            public void run() {
+                dig.waitWhileHidden();
+            }
+        });
+        waiter.start();
+        waiter.join(300);
+        assertTrue("it waits while no activity shows the game", waiter.isAlive());
+        dig.setForeground(true);
+        waiter.join(5000);
+        assertFalse(waiter.isAlive());
+        dig.setForeground(false);
+    }
+
+    @Test
+    public void musicThatIsOverIsNotResumed() throws Exception {
+        NewSound sound = new NewSound();
+        sound.setMusicMode(NewSound.TONE_MUSICE_MODE);     // players that can be watched here
+        TunePlayer normal = player(sound, "normalBackgroundPlayer");
+        TunePlayer bonus = player(sound, "bonusBackgroundPlayer");
+        TunePlayer death = player(sound, "deathPlayer");
+
+        // A level ends in bonus mode; the next level is paused and goes on
+        sound.startBonusBackgroundMusic();
+        assertTrue(bonus.isPlaying());
+        sound.killAll();
+        sound.startNormalBackgroundMusic();
+        sound.changePauseState(true);
+        assertFalse(normal.isPlaying());
+        sound.changePauseState(false);
+        assertTrue(normal.isPlaying());
+        assertFalse("no bonus tune over the music of the next level", bonus.isPlaying());
+
+        // The digger dies, the game is paused and given up (Quit); the next game starts
+        sound.killAll();
+        sound.playDeath();
+        sound.changePauseState(true);
+        sound.killAll();
+        sound.changePauseState(false);
+        assertFalse("no funeral tune at the start of the next game", death.isPlaying());
+        assertFalse(normal.isPlaying());
+        sound.killAll();
+    }
+
+    @Test
+    public void aPausedGameStartsNoTunes() throws Exception {
+        NewSound sound = new NewSound();
+        sound.setMusicMode(NewSound.TONE_MUSICE_MODE);
+        TunePlayer normal = player(sound, "normalBackgroundPlayer");
+        TunePlayer death = player(sound, "deathPlayer");
+
+        // Between the pause and testpause() the game thread starts a new level
+        sound.changePauseState(true);
+        sound.startNormalBackgroundMusic();
+        assertFalse(normal.isPlaying());
+        sound.changePauseState(false);
+        assertTrue(normal.isPlaying());
+
+        // ...or the digger dies then
+        sound.changePauseState(true);
+        sound.stopNormalBackgroundMusic();
+        sound.playDeath();
+        assertFalse(death.isPlaying());
+        sound.changePauseState(false);
+        assertTrue(death.isPlaying());
+        assertFalse(normal.isPlaying());
+        sound.killAll();
+    }
+
+    @Test
+    public void noMusicOverTheFuneralTune() throws Exception {
+        NewSound sound = new NewSound();
+        sound.setMusicMode(NewSound.TONE_MUSICE_MODE);
+        TunePlayer normal = player(sound, "normalBackgroundPlayer");
+        TunePlayer death = player(sound, "deathPlayer");
+
+        // A bag kills the digger in bonus mode: the end of the bonus mode asks for the music
+        sound.playDeath();
+        sound.startNormalBackgroundMusic();
+        assertTrue(death.isPlaying());
+        assertFalse(normal.isPlaying());
+        sound.changePauseState(true);
+        sound.changePauseState(false);
+        assertTrue(death.isPlaying());
+        assertFalse(normal.isPlaying());
+        sound.killAll();
+    }
+
+    @Test
+    public void theMusicGoesOnAfterAChangeOfTheSoundSettings() throws Exception {
+        NewSound sound = new NewSound();
+        sound.setMusicMode(NewSound.TONE_MUSICE_MODE);
+        sound.startNormalBackgroundMusic();
+
+        // Mute and unmute in the menu (the game is paused under it)
+        sound.changePauseState(true);
+        sound.setMuteState(true);
+        sound.setMuteState(false);
+        sound.changePauseState(false);
+        assertTrue(player(sound, "normalBackgroundPlayer").isPlaying());
+
+        // The music mode, there and back
+        sound.changePauseState(true);
+        sound.setMusicMode(NewSound.MIDI_MUSIC_MODE);
+        sound.setMusicMode(NewSound.TONE_MUSICE_MODE);
+        sound.changePauseState(false);
+        assertTrue(player(sound, "normalBackgroundPlayer").isPlaying());
+        sound.killAll();
+    }
+
+    @Test
     public void musicModesCanBeSwitchedBackAndForth() {
         NewSound sound = new NewSound();
         sound.setMusicMode(NewSound.TONE_MUSICE_MODE);
@@ -149,6 +280,19 @@ public class HeadlessGameTest {
     }
 
     // ------------------------------------------------------------------
+
+    /** A tap, as DiggerView sends it: the press, and its release a frame (and more) later. */
+    private static void tap(DiggerCanvas dig) throws InterruptedException {
+        dig.keyPressed(DiggerCanvas.ANY_KEY);
+        Thread.sleep(400);
+        dig.keyReleased(DiggerCanvas.ANY_KEY);
+    }
+
+    private static TunePlayer player(NewSound sound, String name) throws Exception {
+        Field field = NewSound.class.getDeclaredField(name);
+        field.setAccessible(true);
+        return (TunePlayer) field.get(sound);
+    }
 
     private static int[] save(DiggerCanvas dig, String name) throws Exception {
         int[] frame = new int[W * H];

@@ -1,10 +1,12 @@
 package digger;
 
+import android.app.Activity;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Insets;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PixelFormat;
@@ -44,11 +46,19 @@ public class DiggerView extends SurfaceView implements SurfaceHolder.Callback, M
     }
 
     /**
-     * The shortest press the game gets. The title screen looks at the keys once a
-     * frame (80 ms) and sees only the last one (Input.teststart()), so the release
-     * of a quicker tap would hide the press from it.
+     * The shortest press the game gets: a frame and a bit (at least this long). The
+     * title screen looks at the keys once a frame (80 ms, or up to 200 ms when the
+     * game was slowed down) and sees only the last one (Input.teststart()), so the
+     * release of a quicker tap would hide the press from it.
      */
     private static final long MIN_PRESS_MILLIS = 120;
+
+    /**
+     * How long the screen is kept on after the last key or touch for the game. Then
+     * (and at once when the game pauses) the screen times out as usual, also on the
+     * title screen, at PRESS ANY KEY and under a menu.
+     */
+    private static final long KEEP_SCREEN_ON_MILLIS = 60 * 1000;
 
     private static final int[] ARROW_ACTIONS = {DiggerCanvas.UP, DiggerCanvas.DOWN, DiggerCanvas.LEFT, DiggerCanvas.RIGHT};
     private static final float[][] ARROW_DIRECTIONS = {{0, -1}, {0, 1}, {-1, 0}, {1, 0}};
@@ -60,6 +70,11 @@ public class DiggerView extends SurfaceView implements SurfaceHolder.Callback, M
     private final long[] pressTime = new long[DiggerCanvas.ANY_KEY + 1];
     private final Runnable[] pendingRelease = new Runnable[DiggerCanvas.ANY_KEY + 1];
     private RenderThread renderThread;
+    private final Runnable letScreenTurnOff = new Runnable() {
+        public void run() {
+            setKeepScreenOn(false);
+        }
+    };
 
     // Everything below is shared with the render thread and guarded by lock
     private final Object lock = new Object();
@@ -77,7 +92,7 @@ public class DiggerView extends SurfaceView implements SurfaceHolder.Callback, M
 
     // Layout
     private int drawingArea = AREA_4_3;
-    private final Rect insets = new Rect();         // the display cutout
+    private final Rect insets = new Rect();         // the display cutout, and system bars that stay
     private final Rect gameRect = new Rect();
     private float dp = 1;                           // pixels per density independent pixel
     private boolean controlsOverGame;               // no room beside the game: controls drawn on it
@@ -352,16 +367,33 @@ public class DiggerView extends SurfaceView implements SurfaceHolder.Callback, M
     }
 
     @Override
+    @SuppressWarnings("deprecation")
     public WindowInsets onApplyWindowInsets(WindowInsets windowInsets) {
         int left = 0, top = 0, right = 0, bottom = 0;
-        if (Build.VERSION.SDK_INT >= 28) {
-            DisplayCutout cutout = windowInsets.getDisplayCutout();
-            if (cutout != null) {
-                left = cutout.getSafeInsetLeft();
-                top = cutout.getSafeInsetTop();
-                right = cutout.getSafeInsetRight();
-                bottom = cutout.getSafeInsetBottom();
+        if (Build.VERSION.SDK_INT >= 30) {
+            // The display cutout, and the system bars where they cannot be hidden (split
+            // screen, a window on a desktop). Hidden bars, and bars swiped in for a
+            // moment, take no room.
+            Insets safe = windowInsets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+            left = safe.left;
+            top = safe.top;
+            right = safe.right;
+            bottom = safe.bottom;
+        } else {
+            if (Build.VERSION.SDK_INT >= 28) {
+                DisplayCutout cutout = windowInsets.getDisplayCutout();
+                if (cutout != null) {
+                    left = cutout.getSafeInsetLeft();
+                    top = cutout.getSafeInsetTop();
+                    right = cutout.getSafeInsetRight();
+                    bottom = cutout.getSafeInsetBottom();
+                }
             }
+            // In split screen the status bar stays, and before Android 11 a full screen
+            // window is laid out under it (the navigation bar is taken care of).
+            if (Build.VERSION.SDK_INT >= 24 && getContext() instanceof Activity
+                    && ((Activity) getContext()).isInMultiWindowMode())
+                top = Math.max(top, windowInsets.getStableInsetTop());
         }
         synchronized (lock) {
             insets.set(left, top, right, bottom);
@@ -544,15 +576,17 @@ public class DiggerView extends SurfaceView implements SurfaceHolder.Callback, M
         }
         pressTime[action] = SystemClock.uptimeMillis();
         dig.keyPressed(action);
+        keepScreenOn();
     }
 
-    /** Releases a game action, but not before it was held for MIN_PRESS_MILLIS. */
+    /** Releases a game action, but not before it was held for a frame and a bit (MIN_PRESS_MILLIS). */
     private void release(final int action) {
         final DiggerCanvas game = dig;
         if (game == null)
             return;
+        long minPress = Math.max(MIN_PRESS_MILLIS, game.frametime + 40);
         long held = SystemClock.uptimeMillis() - pressTime[action];
-        if (held >= MIN_PRESS_MILLIS) {
+        if (held >= minPress) {
             game.keyReleased(action);
             return;
         }
@@ -565,14 +599,24 @@ public class DiggerView extends SurfaceView implements SurfaceHolder.Callback, M
             }
         };
         pendingRelease[action] = later;
-        postDelayed(later, MIN_PRESS_MILLIS - held);
+        postDelayed(later, minPress - held);
+    }
+
+    /** The game is being played: the screen stays on for a while (KEEP_SCREEN_ON_MILLIS). */
+    private void keepScreenOn() {
+        setKeepScreenOn(true);
+        removeCallbacks(letScreenTurnOff);
+        postDelayed(letScreenTurnOff, KEEP_SCREEN_ON_MILLIS);
     }
 
     /**
      * Lets go of every key and control that is held down, so nothing stays
-     * pressed while a menu is open or the game is hidden.
+     * pressed while a menu is open or the game is hidden; and lets the screen
+     * time out again.
      */
     void releaseControls() {
+        removeCallbacks(letScreenTurnOff);
+        setKeepScreenOn(false);
         int pad;
         boolean fire, tap;
         synchronized (lock) {

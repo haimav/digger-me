@@ -209,6 +209,7 @@ class Main {
             super.run();
             try {
                 while (true) {
+                    dig.waitWhileHidden();  // Android port: no redrawing while the game is hidden
                     synchronized(this) {
                         if (!active) {
                             this.wait();
@@ -568,6 +569,7 @@ class Main {
                     Thread.sleep(50);
                 } catch (Exception e) {
                 }
+                dig.waitWhileHidden();  // Android port: no polling while the game is hidden
                 // Some sphaggeti code here... but it is not my fault! have to work with original
                 if (dig.Input.keypressed != 0 || dig.Input.escape) {
                     dig.pauseState(false);

@@ -197,6 +197,7 @@ class Scores {
                         }
                         dig.Input.clearDownPressedFromClear();
                     }
+                    dig.waitWhileHidden();  // Android port: no polling while the game is hidden
                     tt++;
                     if (tt % 5 == 0) 
                         dig.Pc.gwrite(i * 24 + 128, 130, c, 3, true);

@@ -41,6 +41,12 @@ public class ResourceTunePlayer implements TunePlayer {
     private MediaPlayer player;     // null if the tune could not be loaded, or after close()
     private int volume;
 
+    private boolean nonZeroPosition = false;
+    // Android port: not started since it was last paused or stopped, so not playing; the
+    // MediaPlayer is not asked (each question is a call to the media server, and the game
+    // stops tunes that do not play, e.g. the music on every frame of the bonus mode).
+    private boolean started = false;
+
     public ResourceTunePlayer(String fileName) {
         this(fileName, -1);
     }
@@ -85,9 +91,10 @@ public class ResourceTunePlayer implements TunePlayer {
         if (player == null)
             return;
         try {
-            if (player.isPlaying())
+            if (isPlaying())
                 player.pause();
-            player.seekTo(0);
+            started = false;
+            rewind();
         } catch (IllegalStateException e) {
 
         }
@@ -97,8 +104,9 @@ public class ResourceTunePlayer implements TunePlayer {
         if (player == null)
             return;
         try {
-            if (player.isPlaying())
+            if (isPlaying())
                 player.pause();
+            started = false;
         } catch (IllegalStateException e) {
 
         }
@@ -108,7 +116,9 @@ public class ResourceTunePlayer implements TunePlayer {
         if (player == null)
             return;
         try {
-            player.seekTo(0);
+            if (nonZeroPosition)
+                player.seekTo(0);
+            nonZeroPosition = false;
         } catch (IllegalStateException e) {
 
         }
@@ -123,7 +133,7 @@ public class ResourceTunePlayer implements TunePlayer {
     }
 
     public synchronized boolean isPlaying() {
-        if (player == null)
+        if (player == null || !started)
             return false;
         try {
             return player.isPlaying();
@@ -150,6 +160,8 @@ public class ResourceTunePlayer implements TunePlayer {
         try {
             setupVolume();
             player.setLooping(loop);
+            nonZeroPosition = true;
+            started = true;
             player.start();
         } catch (IllegalStateException e) {
 

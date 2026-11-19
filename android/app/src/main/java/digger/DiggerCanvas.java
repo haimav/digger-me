@@ -9,8 +9,9 @@ It was ported from C almost mechanically! */
  * Android port: in the JavaME version this class was the GameCanvas of the game.
  * On Android the on-screen view is {@link DiggerView}. This class keeps what the
  * rest of the code knows as "dig": the global state and the functions of digger.c
- * (unchanged), the game thread, and the virtual 320x200 CGA screen (Pc.pixels and
- * Pc.displayUpdater) that the view shows.
+ * (unchanged, but for a line in newframe() and one in endgame()), the game thread,
+ * and the virtual 320x200 CGA screen (Pc.pixels and Pc.displayUpdater) that the
+ * view shows.
  * <p>
  * It does not depend on Android at all, so it lives as long as the process does:
  * activities come and go (screen rotation, "Quit" and relaunch, ...) and just
@@ -61,8 +62,9 @@ public class DiggerCanvas implements Runnable {
     int deatharc[] = {3, 5, 6, 6, 5, 3, 0};			// [7]
     volatile boolean paused = false;    // Android port: volatile, it is set from the UI thread
 
-    // Android port: while no activity shows the game, the game thread sleeps
-    // in newframe(), so a hidden game uses neither CPU nor speakers.
+    // Android port: while no activity shows the game, its threads sleep (the game
+    // thread in newframe(), see also waitWhileHidden()), so a hidden game uses neither
+    // CPU nor speakers.
     private final Object foregroundLock = new Object();
     private int visibleActivities = 0;
 
@@ -458,8 +460,9 @@ public class DiggerCanvas implements Runnable {
                 Input.processkey(0xad);
                 break;
             case ANY_KEY:
-                // Nothing: teststart() looks only at the last key, so the release
-                // of a quick tap would hide the press from it. Nothing needs this release.
+                // As every key of the PC. (DiggerView holds a press long enough for
+                // teststart(), which looks only at the last key, once a frame.)
+                Input.processkey(0xb9);
                 break;
         }
     }
@@ -518,15 +521,12 @@ public class DiggerCanvas implements Runnable {
         }
         Pc.displayUpdater.flush();
         //Pc.displayUpdater.newPixels();
-        // Android port: a paused game is silent - also if, on its way to the pause
-        // (testpause() comes at the end of a frame), it started a tune.
-        if (paused)
-            newSound.changePauseState(true);
         waitForForeground();    // Android port
     }
 
     void endgame() {
         Input.escape = true;
+        newSound.killAll();     // Android port: the game is given up, its music must not come back when it is unpaused
     }
 
     void pauseState(boolean state) {
@@ -577,10 +577,22 @@ public class DiggerCanvas implements Runnable {
                 return;
         }
         // Normally the activity paused the game when it was hidden (hideNotify() in
-        // JavaME), and newframe() silenced it. But a game that is being left (Restart,
-        // Quit) is unpaused, and may have turned its music back on.
+        // JavaME). But a game that is being left (Restart, Quit) is not paused, nor is
+        // one that a key unpaused just as it was hidden: pause it, so that it is silent,
+        // and comes back at PRESS ANY KEY.
         if (!paused)
-            newSound.killAll();
+            pauseState(true);
+        waitWhileHidden();
+        time = Pc.gethrt();     // do not try to catch up with the time spent in the background
+    }
+
+    /**
+     * Android port: blocks while no activity shows the game. newframe() does this for
+     * the game thread; the loops that do not call newframe() (the pause in
+     * Main.testpause(), the initials of a new high score in Scores.getinitials(), and
+     * the title line thread, Main.TitleUpdater) call it themselves.
+     */
+    void waitWhileHidden() {
         synchronized (foregroundLock) {
             while (visibleActivities <= 0) {
                 try {
@@ -589,7 +601,6 @@ public class DiggerCanvas implements Runnable {
                 }
             }
         }
-        time = Pc.gethrt();     // do not try to catch up with the time spent in the background
     }
 
     void updatedigger() {

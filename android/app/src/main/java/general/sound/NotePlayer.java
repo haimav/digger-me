@@ -5,6 +5,8 @@
 
 package general.sound;
 
+// Android port: the javax.microedition.media import (it was not used) is gone.
+
 /**
  * Interface for a generic player. This interface abstract various accesses to note playing APIs and provides 
  * information on them (whether they are blocking, what delay to assume and so forth...).
