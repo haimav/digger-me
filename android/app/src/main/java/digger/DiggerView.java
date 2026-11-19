@@ -370,11 +370,15 @@ public class DiggerView extends SurfaceView implements SurfaceHolder.Callback, M
     @SuppressWarnings("deprecation")
     public WindowInsets onApplyWindowInsets(WindowInsets windowInsets) {
         int left = 0, top = 0, right = 0, bottom = 0;
+        // In split screen, or in a window on a desktop, the system bars cannot be hidden.
+        // (In full screen they are hidden; when they come for a moment, swiped in or with
+        // the notification shade, the game does not move.)
+        boolean inWindow = Build.VERSION.SDK_INT >= 24 && getContext() instanceof Activity
+                && ((Activity) getContext()).isInMultiWindowMode();
         if (Build.VERSION.SDK_INT >= 30) {
-            // The display cutout, and the system bars where they cannot be hidden (split
-            // screen, a window on a desktop). Hidden bars, and bars swiped in for a
-            // moment, take no room.
-            Insets safe = windowInsets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+            Insets safe = windowInsets.getInsets(WindowInsets.Type.displayCutout());
+            if (inWindow)
+                safe = Insets.max(safe, windowInsets.getInsets(WindowInsets.Type.systemBars()));
             left = safe.left;
             top = safe.top;
             right = safe.right;
@@ -389,10 +393,9 @@ public class DiggerView extends SurfaceView implements SurfaceHolder.Callback, M
                     bottom = cutout.getSafeInsetBottom();
                 }
             }
-            // In split screen the status bar stays, and before Android 11 a full screen
-            // window is laid out under it (the navigation bar is taken care of).
-            if (Build.VERSION.SDK_INT >= 24 && getContext() instanceof Activity
-                    && ((Activity) getContext()).isInMultiWindowMode())
+            // Before Android 11 a full screen window in split screen is laid out under the
+            // status bar (the navigation bar is taken care of).
+            if (inWindow)
                 top = Math.max(top, windowInsets.getStableInsetTop());
         }
         synchronized (lock) {

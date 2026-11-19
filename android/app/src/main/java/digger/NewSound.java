@@ -172,7 +172,7 @@ public class NewSound implements GaugableResource {
         setVolume(volume);
     }
 
-    public synchronized void killAll() {
+    public synchronized void killAll() {   // Android port: synchronized, like the pause
         stopAll();
         // Android port: the game calls this when a life, a level or a game is over (or
         // given up), so nothing that was playing is to be resumed after the next pause.
@@ -236,16 +236,19 @@ public class NewSound implements GaugableResource {
     // on: the game thread may start one between the pause and testpause() (the music of a
     // new level, ...). It is synchronized with the pause for that.
     public synchronized void startNormalBackgroundMusic() {
-        normalMusicMode = true;
-        // Android port: ...and not over the funeral tune: a bag can kill the digger in
+        // Android port: ...and none during the funeral tune: a bag can kill the digger in
         // bonus mode, and the end of the bonus mode then asks for this music. (In JavaME
-        // the second tune made ResourceTunePlayer throw.)
-        if (!muteFlag && !pauseState && !deathPlayer.isPlaying()) {
+        // the second tune made ResourceTunePlayer throw.) The next life asks again.
+        if (deathPlayer.isPlaying() || (pauseState && deathAtPause)) {
+            return;
+        }
+        normalMusicMode = true;
+        if (!muteFlag && !pauseState) {
             normalBackgroundPlayer.playInLoop();
         }
     }
 
-    public synchronized void stopNormalBackgroundMusic() {
+    public synchronized void stopNormalBackgroundMusic() {    // Android port: synchronized, like the start
         normalMusicMode = false;
         if (!muteFlag) {
             normalBackgroundPlayer.stopPlaying();
@@ -260,7 +263,7 @@ public class NewSound implements GaugableResource {
         }
     }
 
-    public synchronized void stopBonusBackgroundMusic() {
+    public synchronized void stopBonusBackgroundMusic() {     // Android port: synchronized, like the start
         bonusMusicMode = false;
         if (!muteFlag) {
             bonusBackgroundPlayer.stopPlaying();
@@ -515,7 +518,7 @@ public class NewSound implements GaugableResource {
         }
     }
 
-    public synchronized void setMuteState(boolean mute) {
+    public synchronized void setMuteState(boolean mute) {     // Android port: synchronized, like the pause
         if (mute == true) {
             stopAll();      // Android port: was killAll(); the music comes back when unmuted
             muteFlag = true;
@@ -528,7 +531,7 @@ public class NewSound implements GaugableResource {
         return muteFlag;
     }
 
-    public synchronized void setMusicMode(int newMusicMode) {
+    public synchronized void setMusicMode(int newMusicMode) {     // Android port: synchronized, like the pause
         if (musicMode == newMusicMode) {
             return;
         }

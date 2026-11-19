@@ -9,9 +9,9 @@ It was ported from C almost mechanically! */
  * Android port: in the JavaME version this class was the GameCanvas of the game.
  * On Android the on-screen view is {@link DiggerView}. This class keeps what the
  * rest of the code knows as "dig": the global state and the functions of digger.c
- * (unchanged, but for a line in newframe() and one in endgame()), the game thread,
- * and the virtual 320x200 CGA screen (Pc.pixels and Pc.displayUpdater) that the
- * view shows.
+ * (unchanged but for a line in newframe(); see also endgame() and pauseState()),
+ * the game thread, and the virtual 320x200 CGA screen (Pc.pixels and
+ * Pc.displayUpdater) that the view shows.
  * <p>
  * It does not depend on Android at all, so it lives as long as the process does:
  * activities come and go (screen rotation, "Quit" and relaunch, ...) and just
@@ -530,8 +530,12 @@ public class DiggerCanvas implements Runnable {
     }
 
     void pauseState(boolean state) {
-        paused = state;
-        newSound.changePauseState(state);
+        // Android port: both at once. The UI thread pauses while the game thread may be
+        // unpausing; the game must not go on with its sound paused, or pause with it on.
+        synchronized (newSound) {
+            paused = state;
+            newSound.changePauseState(state);
+        }
     }
 
     int reversedir(int dir) {

@@ -103,9 +103,11 @@ in `assets/audiofiles/`, under the same paths). These files are byte for byte
 those of `src/`.
 
 The functions of `digger.c` that live in `DiggerCanvas` (digging, firing, dying,
-the bonus mode, ...) are unchanged as well, except two that got one line each:
-`newframe()` also waits while the game is hidden, and `endgame()` (Restart,
-Quit) also stops the music.
+the bonus mode, ...) are unchanged as well, except `newframe()`, which also waits
+while the game is hidden. Of the other methods that came with the class,
+`endgame()` (Restart, Quit) also stops the music, and `pauseState()` pauses the
+game and its sound together (the UI thread may pause the game just as the game
+thread unpauses it).
 
 ### Carried over with small, marked changes
 
@@ -125,9 +127,11 @@ Every change is marked with an `Android port:` comment.
     came back over the music of the next level, and the funeral tune at the start
     of the next game. A change of the sound settings keeps it, so the music goes
     on after it.
-  * The music does not start over the funeral tune: a bag can kill the digger in
-    bonus mode, and the end of the bonus mode then asks for the music. (In Java
-    ME the second tune made `ResourceTunePlayer` throw.)
+  * The music does not start during the funeral tune: a bag can kill the digger
+    in bonus mode, and the end of the bonus mode then asks for the music. (In
+    Java ME the second tune made `ResourceTunePlayer` throw.) The next life asks
+    for it again.
+  * The methods that start and stop tunes are synchronized, like the pause.
   * Switching the music from TONE back to MIDI threw a `NullPointerException`.
 * `general.sound.MusicNotes`, `NotePlayer`, `NoteSeriallizer`: no more Mobile
   Media API types.

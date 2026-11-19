@@ -103,14 +103,14 @@ public class HeadlessGameTest {
         Thread.sleep(300);
         save(dig, "dug.png");
 
-        // The pause (what the activity does when it is hidden or opens the menu)
+        // The pause (what the activity does when it is hidden or opens the menu): the
+        // game waits at PRESS ANY KEY, and shows no new frames, until a key
         dig.pauseState(true);
         Thread.sleep(500);
-        save(dig, "paused.png");
-        final int pausedX = dig.diggerx, pausedY = dig.diggery;
+        int pausedFrame = save(dig, "paused.png", null);
         Thread.sleep(400);
-        assertEquals(pausedX, dig.diggerx);
-        assertEquals(pausedY, dig.diggery);
+        assertTrue("still paused", dig.paused);
+        assertEquals("no frames while paused", pausedFrame, save(dig, null, null));
         tap(dig);
         waitFor(new BooleanSupplier() {
             public boolean getAsBoolean() {
@@ -241,6 +241,12 @@ public class HeadlessGameTest {
         sound.changePauseState(false);
         assertTrue(death.isPlaying());
         assertFalse(normal.isPlaying());
+
+        // ...nor once the funeral tune is over, and the digger still lies there
+        death.stopPlaying();
+        sound.changePauseState(true);
+        sound.changePauseState(false);
+        assertFalse(normal.isPlaying());
         sound.killAll();
     }
 
@@ -296,9 +302,18 @@ public class HeadlessGameTest {
 
     private static int[] save(DiggerCanvas dig, String name) throws Exception {
         int[] frame = new int[W * H];
-        dig.Pc.displayUpdater.getFrame(frame);
-        writePng(frame, W, H, new File(frames, name));
+        save(dig, name, frame);
         return frame;
+    }
+
+    /** Saves the last frame the game showed (if a name is given); returns its number. */
+    private static int save(DiggerCanvas dig, String name, int[] frame) throws Exception {
+        if (frame == null)
+            frame = new int[W * H];
+        int number = dig.Pc.displayUpdater.getFrame(frame);
+        if (name != null)
+            writePng(frame, W, H, new File(frames, name));
+        return number;
     }
 
     /** A minimal PNG writer (unit tests compile against android.jar, which has no javax.imageio). */
