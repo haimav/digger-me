@@ -1,10 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- The game is fully playable with the on-screen controls, a keyboard,
          a D-pad or a gamepad, so none of them is required. -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.hardware.gamepad" android:required="false" />
+    <!-- It starts in landscape, but it is played in portrait too (Settings, "Screen"). -->
+    <uses-feature android:name="android.hardware.screen.landscape" android:required="false" />
 
     <application
         android:allowBackup="true"
@@ -13,16 +16,20 @@
         android:icon="@mipmap/ic_launcher"
         android:isGame="true"
         android:label="@string/app_name"
-        android:theme="@style/DiggerTheme">
+        android:theme="@style/DiggerTheme"
+        tools:targetApi="33">
 
         <!-- The game draws a 320x200 CGA screen and handles rotation and
-             resizing itself, so the activity is never recreated for them. -->
+             resizing itself, so the activity is never recreated for them.
+             Landscape is only where it starts: the player can choose another
+             orientation (Settings, "Screen"), and large screens may ignore it. -->
         <activity
             android:name="digger.DiggerActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density"
             android:exported="true"
             android:launchMode="singleTask"
-            android:screenOrientation="sensorLandscape">
+            android:screenOrientation="sensorLandscape"
+            tools:ignore="DiscouragedApi">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- These files are carried over unchanged from the Java ME version, which
+         carried them over, almost mechanically, from the C version. They mix tabs
+         and spaces, but their logic is right; they are kept byte for byte rather
+         than reformatted. -->
+    <issue id="SuspiciousIndentation">
+        <ignore path="src/main/java/digger/Bags.java" />
+        <ignore path="src/main/java/digger/Input.java" />
+        <ignore path="src/main/java/digger/Monster.java" />
+        <ignore path="src/main/java/digger/Sprite.java" />
+        <ignore path="src/main/java/digger/_bag.java" />
+    </issue>
+</lint>

@@ -4,13 +4,17 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
-import javax.imageio.ImageIO;
+import java.util.zip.CRC32;
+import java.util.zip.DeflaterOutputStream;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -42,6 +46,7 @@ public class HeadlessGameTest {
         final DiggerCanvas dig = new DiggerCanvas();
         dig.frametime = 10;     // the title animation, 8 times faster
         dig.start();
+        dig.setForeground(true);    // what a visible activity does
 
         // The title screen, with its animation (monsters, digger, gold, emerald, bonus)
         Thread.sleep(3500);
@@ -148,10 +153,53 @@ public class HeadlessGameTest {
     private static int[] save(DiggerCanvas dig, String name) throws Exception {
         int[] frame = new int[W * H];
         dig.Pc.displayUpdater.getFrame(frame);
-        BufferedImage image = new BufferedImage(W, H, BufferedImage.TYPE_INT_RGB);
-        image.setRGB(0, 0, W, H, frame, 0, W);
-        ImageIO.write(image, "png", new File(frames, name));
+        writePng(frame, W, H, new File(frames, name));
         return frame;
+    }
+
+    /** A minimal PNG writer (unit tests compile against android.jar, which has no javax.imageio). */
+    private static void writePng(int[] argb, int w, int h, File file) throws IOException {
+        ByteArrayOutputStream rows = new ByteArrayOutputStream();
+        for (int y = 0; y < h; y++) {
+            rows.write(0);      // no filter
+            for (int x = 0; x < w; x++) {
+                int pixel = argb[y * w + x];
+                rows.write(pixel >> 16 & 0xff);
+                rows.write(pixel >> 8 & 0xff);
+                rows.write(pixel & 0xff);
+            }
+        }
+        ByteArrayOutputStream compressed = new ByteArrayOutputStream();
+        DeflaterOutputStream deflater = new DeflaterOutputStream(compressed);
+        deflater.write(rows.toByteArray());
+        deflater.close();
+
+        ByteArrayOutputStream header = new ByteArrayOutputStream();
+        DataOutputStream ihdr = new DataOutputStream(header);
+        ihdr.writeInt(w);
+        ihdr.writeInt(h);
+        ihdr.write(new byte[] {8, 2, 0, 0, 0});    // 8 bit RGB, no interlace
+
+        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        try {
+            out.write(new byte[] {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'});
+            pngChunk(out, "IHDR", header.toByteArray());
+            pngChunk(out, "IDAT", compressed.toByteArray());
+            pngChunk(out, "IEND", new byte[0]);
+        } finally {
+            out.close();
+        }
+    }
+
+    private static void pngChunk(DataOutputStream out, String type, byte[] data) throws IOException {
+        byte[] name = type.getBytes("US-ASCII");
+        CRC32 crc = new CRC32();
+        crc.update(name);
+        crc.update(data);
+        out.writeInt(data.length);
+        out.write(name);
+        out.write(data);
+        out.writeInt((int) crc.getValue());
     }
 
     private static Set<Integer> colors(int[] frame) {

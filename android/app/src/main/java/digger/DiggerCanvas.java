@@ -61,10 +61,10 @@ public class DiggerCanvas implements Runnable {
     int deatharc[] = {3, 5, 6, 6, 5, 3, 0};			// [7]
     volatile boolean paused = false;    // Android port: volatile, it is set from the UI thread
 
-    // Android port: while the activity is in the background the game thread
-    // sleeps in newframe(), so a hidden game uses neither CPU nor speakers.
+    // Android port: while no activity shows the game, the game thread sleeps
+    // in newframe(), so a hidden game uses neither CPU nor speakers.
     private final Object foregroundLock = new Object();
-    private boolean inForeground = true;
+    private int visibleActivities = 0;
 
     public DiggerCanvas() {
         // Older applet version used key pressed and released events.
@@ -518,6 +518,10 @@ public class DiggerCanvas implements Runnable {
         }
         Pc.displayUpdater.flush();
         //Pc.displayUpdater.newPixels();
+        // Android port: a paused game is silent - also if, on its way to the pause
+        // (testpause() comes at the end of a frame), it started a tune.
+        if (paused)
+            newSound.changePauseState(true);
         waitForForeground();    // Android port
     }
 
@@ -555,26 +559,30 @@ public class DiggerCanvas implements Runnable {
     }
 
     /**
-     * Android port: called by DiggerActivity when it becomes visible or hidden.
+     * Android port: called by a DiggerActivity with true when it becomes visible,
+     * and with false when it is hidden again. The calls are counted, since two
+     * activities may overlap for a moment (e.g. "Quit" and a quick relaunch).
      * (There is no stop(): the game thread lives as long as the process.)
      */
     void setForeground(boolean foreground) {
         synchronized (foregroundLock) {
-            inForeground = foreground;
+            visibleActivities += foreground ? 1 : -1;
             foregroundLock.notifyAll();
         }
     }
 
     private void waitForForeground() {
         synchronized (foregroundLock) {
-            if (inForeground)
+            if (visibleActivities > 0)
                 return;
         }
-        // The activity paused the game (hideNotify() in JavaME), but on the way
-        // here the game may have started a tune (e.g. a new level). Hidden games are silent.
-        newSound.killAll();
+        // Normally the activity paused the game when it was hidden (hideNotify() in
+        // JavaME), and newframe() silenced it. But a game that is being left (Restart,
+        // Quit) is unpaused, and may have turned its music back on.
+        if (!paused)
+            newSound.killAll();
         synchronized (foregroundLock) {
-            while (!inForeground) {
+            while (visibleActivities <= 0) {
                 try {
                     foregroundLock.wait();
                 } catch (InterruptedException e) {

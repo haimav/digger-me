@@ -187,8 +187,12 @@ public class NewSound implements GaugableResource {
     private boolean deathAtPause = false;
 
     public synchronized void changePauseState(boolean newPauseState) {
-        if (newPauseState && !pauseState) {
-            deathAtPause = deathPlayer.isPlaying();
+        // Android port: pausing again (also when already paused) silences what the game
+        // thread started before it reached the pause, e.g. the music of a new level;
+        // what is to be resumed is still remembered.
+        if (newPauseState) {
+            boolean deathPlaying = deathPlayer.isPlaying();
+            deathAtPause = pauseState ? (deathAtPause || deathPlaying) : deathPlaying;
             normalBackgroundPlayer.pausePlaying();
             bonusBackgroundPlayer.pausePlaying();
             deathPlayer.pausePlaying();
@@ -430,7 +434,7 @@ public class NewSound implements GaugableResource {
             return;
         }
 
-        if (musicMode == MIDI_MUSIC_MODE) {
+        if (musicMode == MIDI_MUSIC_MODE && bonusPulseMidiPlayer != null) {   // Android port: null while the mode changes
             bonusPulseMidiPlayer.playInLoop();
         }
         if (musicMode == TONE_MUSICE_MODE) {
@@ -480,7 +484,7 @@ public class NewSound implements GaugableResource {
 
     public void endBonusPulse() {
         bonusPulsePlaying = false;
-        if (musicMode == MIDI_MUSIC_MODE) {
+        if (musicMode == MIDI_MUSIC_MODE && bonusPulseMidiPlayer != null) {   // Android port: null while the mode changes
             bonusPulseMidiPlayer.stopPlaying();
         }
     }

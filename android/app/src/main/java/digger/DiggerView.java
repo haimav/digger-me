@@ -11,6 +11,7 @@ import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.os.Build;
+import android.os.SystemClock;
 import android.view.DisplayCutout;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -42,6 +43,13 @@ public class DiggerView extends SurfaceView implements SurfaceHolder.Callback, M
         void onMenuButton();
     }
 
+    /**
+     * The shortest press the game gets. The title screen looks at the keys once a
+     * frame (80 ms) and sees only the last one (Input.teststart()), so the release
+     * of a quicker tap would hide the press from it.
+     */
+    private static final long MIN_PRESS_MILLIS = 120;
+
     private static final int[] ARROW_ACTIONS = {DiggerCanvas.UP, DiggerCanvas.DOWN, DiggerCanvas.LEFT, DiggerCanvas.RIGHT};
     private static final float[][] ARROW_DIRECTIONS = {{0, -1}, {0, 1}, {-1, 0}, {1, 0}};
 
@@ -49,6 +57,8 @@ public class DiggerView extends SurfaceView implements SurfaceHolder.Callback, M
     private DiggerCanvas dig;
     private MenuButtonListener menuButtonListener;
     private final boolean[] keyHeld = new boolean[DiggerCanvas.ANY_KEY + 1];
+    private final long[] pressTime = new long[DiggerCanvas.ANY_KEY + 1];
+    private final Runnable[] pendingRelease = new Runnable[DiggerCanvas.ANY_KEY + 1];
     private RenderThread renderThread;
 
     // Everything below is shared with the render thread and guarded by lock
@@ -59,7 +69,7 @@ public class DiggerView extends SurfaceView implements SurfaceHolder.Callback, M
     private final Bitmap[] frames = new Bitmap[2];  // two, so a frame is never changed while being drawn
     private int currentFrame = 0;
     private int[] frameData;
-    private final Paint pixelPaint = new Paint();   // no filtering: sharp CGA pixels
+    private final Paint pixelPaint = new Paint();   // no filtering (see the constructor): sharp CGA pixels
     private final Paint controlPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF labelRect = new RectF();
     private final Bitmap fireLabel = cgaText("FIRE");
@@ -89,6 +99,7 @@ public class DiggerView extends SurfaceView implements SurfaceHolder.Callback, M
         super(context);
         getHolder().setFormat(PixelFormat.RGBA_8888);
         getHolder().addCallback(this);
+        pixelPaint.setFilterBitmap(false);     // on by default since Android 10
         controlsVisible = context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN);
     }
 
@@ -510,15 +521,51 @@ public class DiggerView extends SurfaceView implements SurfaceHolder.Callback, M
             if (event.getRepeatCount() == 0 && !keyHeld[action]) {
                 keyHeld[action] = true;
                 hideTouchControls();
-                dig.keyPressed(action);
+                press(action);
             }
         } else if (event.getAction() == KeyEvent.ACTION_UP) {
             if (keyHeld[action]) {
                 keyHeld[action] = false;
-                dig.keyReleased(action);
+                release(action);
             }
         }
         return true;
+    }
+
+    /** Presses a game action (on the UI thread). */
+    private void press(int action) {
+        if (dig == null)
+            return;
+        if (pendingRelease[action] != null) {
+            // Pressed again before its last release went out: let go first.
+            removeCallbacks(pendingRelease[action]);
+            pendingRelease[action] = null;
+            dig.keyReleased(action);
+        }
+        pressTime[action] = SystemClock.uptimeMillis();
+        dig.keyPressed(action);
+    }
+
+    /** Releases a game action, but not before it was held for MIN_PRESS_MILLIS. */
+    private void release(final int action) {
+        final DiggerCanvas game = dig;
+        if (game == null)
+            return;
+        long held = SystemClock.uptimeMillis() - pressTime[action];
+        if (held >= MIN_PRESS_MILLIS) {
+            game.keyReleased(action);
+            return;
+        }
+        Runnable later = new Runnable() {
+            public void run() {
+                if (pendingRelease[action] == this) {
+                    pendingRelease[action] = null;
+                    game.keyReleased(action);
+                }
+            }
+        };
+        pendingRelease[action] = later;
+        postDelayed(later, MIN_PRESS_MILLIS - held);
     }
 
     /**
@@ -547,6 +594,14 @@ public class DiggerView extends SurfaceView implements SurfaceHolder.Callback, M
                     keyHeld[action] = false;
                     dig.keyReleased(action);
                 }
+            }
+        }
+        // ...and the releases that were waiting for MIN_PRESS_MILLIS
+        for (int action = 0; action < pendingRelease.length; action++) {
+            Runnable pending = pendingRelease[action];
+            if (pending != null) {
+                removeCallbacks(pending);
+                pending.run();      // releases now, and clears pendingRelease[action]
             }
         }
         requestRender();
@@ -580,7 +635,13 @@ public class DiggerView extends SurfaceView implements SurfaceHolder.Callback, M
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_POINTER_UP: {
                 int i = event.getActionIndex();
-                touchUp(event.getPointerId(i), event.getX(i), event.getY(i));
+                // Since Android 13 a finger can be lifted "cancelled" (e.g. a palm was rejected)
+                boolean cancelled = Build.VERSION.SDK_INT >= 33 && (event.getFlags() & MotionEvent.FLAG_CANCELED) != 0;
+                int click = touchUp(event.getPointerId(i), event.getX(i), event.getY(i), cancelled);
+                if (click != NO_CLICK)
+                    performClick();
+                if (click == MENU_CLICK && menuButtonListener != null)
+                    menuButtonListener.onMenuButton();
                 break;
             }
             case MotionEvent.ACTION_CANCEL:
@@ -620,9 +681,9 @@ public class DiggerView extends SurfaceView implements SurfaceHolder.Callback, M
         if (target == 1)
             setPadAction(directionAt(x, y, 0));
         else if (target == 2)
-            dig.keyPressed(DiggerCanvas.FIRE);
+            press(DiggerCanvas.FIRE);
         else if (target == 0)
-            dig.keyPressed(DiggerCanvas.ANY_KEY);   // starts a game, ends a pause
+            press(DiggerCanvas.ANY_KEY);    // starts a game, ends a pause
         requestRender();
     }
 
@@ -636,9 +697,12 @@ public class DiggerView extends SurfaceView implements SurfaceHolder.Callback, M
         setPadAction(action);
     }
 
-    private void touchUp(int id, float x, float y) {
+    private static final int NO_CLICK = 0, GAME_CLICK = 1, MENU_CLICK = 2;
+
+    /** Lets go of what the finger held; returns what it clicked, if anything. */
+    private int touchUp(int id, float x, float y, boolean cancelled) {
         if (dig == null)
-            return;
+            return NO_CLICK;
         boolean pad = false, fire = false, menu = false, tap = false;
         synchronized (lock) {
             if (id == padPointer) {
@@ -649,7 +713,7 @@ public class DiggerView extends SurfaceView implements SurfaceHolder.Callback, M
                 fire = true;
             } else if (id == menuPointer) {
                 menuPointer = -1;
-                menu = onMenu(x, y);
+                menu = !cancelled && onMenu(x, y);
             } else if (id == tapPointer) {
                 tapPointer = -1;
                 tap = true;
@@ -658,16 +722,13 @@ public class DiggerView extends SurfaceView implements SurfaceHolder.Callback, M
         if (pad)
             setPadAction(0);
         if (fire)
-            dig.keyReleased(DiggerCanvas.FIRE);
-        if (tap) {
-            dig.keyReleased(DiggerCanvas.ANY_KEY);
-            performClick();
-        }
+            release(DiggerCanvas.FIRE);
+        if (tap)
+            release(DiggerCanvas.ANY_KEY);
         requestRender();
-        if (menu && menuButtonListener != null) {
-            performClick();
-            menuButtonListener.onMenuButton();
-        }
+        if (menu)
+            return MENU_CLICK;
+        return tap && !cancelled ? GAME_CLICK : NO_CLICK;
     }
 
     /** Holds the pad down in a new direction (0 for none). */
@@ -681,9 +742,9 @@ public class DiggerView extends SurfaceView implements SurfaceHolder.Callback, M
             return;
         // The new direction first, so that the digger does not stop in between.
         if (action != 0)
-            dig.keyPressed(action);
+            press(action);
         if (old != 0)
-            dig.keyReleased(old);
+            release(old);
         requestRender();
     }
 

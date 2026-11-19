@@ -4,6 +4,7 @@
  */
 package digger;
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
@@ -71,6 +72,8 @@ public class DiggerActivity extends Activity implements MenuListener {
     private AlertDialog warrantyDialog;
     private Object backCallback;    // the OnBackInvokedCallback, on Android 13 and later
     private SharedPreferences settings;
+    private boolean started;        // between onStart() and onStop()
+    private boolean showingGame;    // this activity told the game it is visible
 
     // Settings, kept between runs (JavaME forgot them)
     private static final String MUTE_SETTING = "mute";
@@ -182,14 +185,24 @@ public class DiggerActivity extends Activity implements MenuListener {
             gameCanvas.start();
         }
         gameView.attach(gameCanvas);
+        updateGameVisibility();
         updateMenuTexts();
+    }
+
+    /** Tells the game whether this activity shows it; the game sleeps while no activity does. */
+    private void updateGameVisibility() {
+        boolean show = started && gameCanvas != null;
+        if (show != showingGame) {
+            showingGame = show;
+            gameCanvas.setForeground(show);
+        }
     }
 
     @Override
     protected void onStart() {
         super.onStart();
-        if (gameCanvas != null)
-            gameCanvas.setForeground(true);
+        started = true;
+        updateGameVisibility();
     }
 
     @Override
@@ -206,8 +219,8 @@ public class DiggerActivity extends Activity implements MenuListener {
 
     @Override
     protected void onStop() {
-        if (gameCanvas != null)
-            gameCanvas.setForeground(false);
+        started = false;
+        updateGameVisibility();
         super.onStop();
     }
 
@@ -250,6 +263,14 @@ public class DiggerActivity extends Activity implements MenuListener {
         boolean down = event.getAction() == KeyEvent.ACTION_DOWN;
         MenuScreen menu = currentMenu();
 
+        // Back, before Android 13. (Since Android 13 back comes to the
+        // OnBackInvokedCallback, see registerBackCallback().)
+        if (keyCode == KeyEvent.KEYCODE_BACK && Build.VERSION.SDK_INT < 33) {
+            if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled())
+                handleBack();
+            return true;
+        }
+
         // MENU (or START on a gamepad) opens the menu, as the phone's soft keys did, and closes it.
         if (keyCode == KeyEvent.KEYCODE_MENU || keyCode == KeyEvent.KEYCODE_BUTTON_START) {
             if (down && event.getRepeatCount() == 0) {
@@ -290,13 +311,6 @@ public class DiggerActivity extends Activity implements MenuListener {
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, callback);
             backCallback = callback;
         }
-    }
-
-    /** Before Android 13 (later versions call the OnBackInvokedCallback). */
-    @Override
-    @SuppressWarnings("deprecation")
-    public void onBackPressed() {
-        handleBack();
     }
 
     /** Back closes the menu that is open, or opens the options menu. */
@@ -428,6 +442,7 @@ public class DiggerActivity extends Activity implements MenuListener {
     // ------------------------------------------------------------------
     // The screen
 
+    @SuppressLint("SourceLockedOrientationActivity")   // the player chooses it (Settings, "Screen")
     private void applyScreenSetting() {
         switch (settings.getInt(SCREEN_SETTING, LANDSCAPE)) {
             case PORTRAIT:
